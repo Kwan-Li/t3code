@@ -184,7 +184,7 @@ import {
   openFileInPreview,
   openUrlInPreview,
   BrowserPreviewUnavailableError,
-  BrowserSettingsReadError,
+  isBrowserSettingsReadError,
 } from "../browser/openFileInPreview";
 import { resolveLinkTarget } from "../browser/browserLinkTarget";
 import { PullRequestLinkPreview } from "./pullRequest/PullRequestLinkPreview";
@@ -722,7 +722,7 @@ function useChatMarkdownState({
       if (result._tag === "Success") recordVisitForThread(threadRef, url);
       else if (!isAtomCommandInterrupted(result)) {
         const error = squashAtomCommandFailure(result);
-        if (error instanceof BrowserSettingsReadError) {
+        if (isBrowserSettingsReadError(error)) {
           toastManager.add(
             stackedThreadToast({
               type: "error",
@@ -1214,7 +1214,7 @@ const CHAT_MARKDOWN_COMPONENTS = {
                 { operation: "open-link-in-preview", target: href },
                 result.cause,
               );
-              if (squashAtomCommandFailure(result) instanceof BrowserSettingsReadError) return;
+              if (isBrowserSettingsReadError(squashAtomCommandFailure(result))) return;
               void readLocalApi()?.shell.openExternal(href);
             });
           }}

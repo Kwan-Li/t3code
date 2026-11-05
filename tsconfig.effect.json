@@ -96,6 +96,8 @@
           "timeoutCatchTagToTimeoutOrElse": "error",
           "unnecessaryPipe": "error",
           "unnecessaryTypeofType": "error",
+          "preferSchemaTaggedError": "error",
+          "extendsNativeError": "error",
           "schemaNumber": "off"
         },
         "overrides": [

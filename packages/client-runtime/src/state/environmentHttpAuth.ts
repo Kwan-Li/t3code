@@ -216,7 +216,10 @@ const executeEnvironmentRequest = Effect.fnUntraced(function* <
       duration: input.timeoutMs,
       orElse: () =>
         Effect.fail(
-          new RemoteEnvironmentAuthTimeoutError(requestUrlFor(httpBaseUrl), input.timeoutMs),
+          new RemoteEnvironmentAuthTimeoutError({
+            requestUrl: requestUrlFor(httpBaseUrl),
+            timeoutMs: input.timeoutMs,
+          }),
         ),
     }),
   );

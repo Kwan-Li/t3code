@@ -1,3 +1,4 @@
+import * as Schema from "effect/Schema";
 import * as Dialog from "./ui/Dialog";
 import { useContext, useEffect, useEffectEvent, useState } from "react";
 
@@ -24,14 +25,16 @@ export type {
   ResolvedFilePreviewSource,
 } from "./FilePreviewModal.types";
 
-class PreviewResolutionError extends Error {
-  constructor(
-    override readonly cause: unknown,
-    readonly fallbackMessage: string,
-  ) {
-    super(fallbackMessage, { cause });
+class PreviewResolutionError extends Schema.TaggedError<PreviewResolutionError>()(
+  "PreviewResolutionError",
+  { cause: Schema.Defect(), fallbackMessage: Schema.String },
+) {
+  override get message(): string {
+    return this.fallbackMessage;
   }
 }
+
+const isPreviewResolutionError = Schema.is(PreviewResolutionError);
 
 interface ResolvedPreviewItem {
   readonly source: ResolvedFilePreviewSource;
@@ -46,7 +49,10 @@ async function resolvePreviewItem(
   if ("attachment" in item) {
     const file = await loadLocalAttachmentPreview(item.attachment, signal).catch(
       (error: unknown) => {
-        throw new PreviewResolutionError(error, "Attach the file again and retry.");
+        throw new PreviewResolutionError({
+          cause: error,
+          fallbackMessage: "Attach the file again and retry.",
+        });
       },
     );
     return file && { source: { ...item, name, uri: file.uri }, dispose: file.dispose };
@@ -59,10 +65,11 @@ async function resolvePreviewItem(
       return value;
     })
     .catch((error: unknown) => {
-      throw new PreviewResolutionError(
-        error,
-        "Reconnect to this environment and try again. The file may have been moved or deleted.",
-      );
+      throw new PreviewResolutionError({
+        cause: error,
+        fallbackMessage:
+          "Reconnect to this environment and try again. The file may have been moved or deleted.",
+      });
     });
   return { source: { ...item, name, uri: url + (item.srcFragment ?? "") } };
 }
@@ -95,9 +102,9 @@ function ResolvedFilePreview(props: {
       if (controller.signal.aborted) return;
       controller.abort();
       onResolutionError(
-        error instanceof PreviewResolutionError
+        isPreviewResolutionError(error)
           ? error
-          : new PreviewResolutionError(error, "Try again."),
+          : new PreviewResolutionError({ cause: error, fallbackMessage: "Try again." }),
       );
     };
     const resolving = Promise.allSettled(

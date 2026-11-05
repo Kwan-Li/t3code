@@ -6,20 +6,27 @@ import * as Cause from "effect/Cause";
 import * as Effect from "effect/Effect";
 import * as Result from "effect/Result";
 import * as Fiber from "effect/Fiber";
+import * as Schema from "effect/Schema";
 import * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
 import { discardResponseBody, responsePayloads } from "@t3tools/shared/mcpResponsePayloads";
 
 /** ACP mandates stdio MCP support; HTTP/SSE support varies. */
 
-export class AcpMcpBridgeError extends Error {
-  readonly _tag = "AcpMcpBridgeError";
-}
+export class AcpMcpBridgeError extends Schema.TaggedError<AcpMcpBridgeError>()(
+  "AcpMcpBridgeError",
+  { message: Schema.String, cause: Schema.optional(Schema.Defect()) },
+) {}
+
+const isAcpMcpBridgeError = Schema.is(AcpMcpBridgeError);
 
 const bridgeError = (cause: unknown): AcpMcpBridgeError =>
-  cause instanceof AcpMcpBridgeError
+  isAcpMcpBridgeError(cause)
     ? cause
-    : new AcpMcpBridgeError(cause instanceof Error ? cause.message : String(cause), { cause });
+    : new AcpMcpBridgeError({
+        message: cause instanceof Error ? cause.message : String(cause),
+        cause,
+      });
 
 interface JsonRpcEnvelope {
   readonly id?: unknown;
@@ -101,9 +108,9 @@ export const mcpToolSession = (
     sessionId = response.headers.get("mcp-session-id") ?? sessionId;
     if (!response.ok) {
       yield* discardResponseBody(response);
-      return yield* Effect.fail(
-        new AcpMcpBridgeError(`T3 Code MCP endpoint responded with HTTP ${response.status}.`),
-      );
+      return yield* new AcpMcpBridgeError({
+        message: `T3 Code MCP endpoint responded with HTTP ${response.status}.`,
+      });
     }
     const payloads = yield* Stream.runCollect(responsePayloads(response, bridgeError));
     for (const payload of payloads) {
@@ -120,11 +127,9 @@ export const mcpToolSession = (
     const responses = yield* send({ jsonrpc: "2.0", id, method, params });
     const envelope = asEnvelope(responses.find((entry) => asEnvelope(entry)?.id === id));
     if (envelope === null || envelope.error !== undefined) {
-      return yield* Effect.fail(
-        new AcpMcpBridgeError(
-          `T3 Code MCP ${method} failed${envelope?.error === undefined ? "." : `: ${JSON.stringify(envelope.error)}`}`,
-        ),
-      );
+      return yield* new AcpMcpBridgeError({
+        message: `T3 Code MCP ${method} failed${envelope?.error === undefined ? "." : `: ${JSON.stringify(envelope.error)}`}`,
+      });
     }
     return envelope;
   });
