@@ -1,4 +1,5 @@
 import {
+  type CollisionDetection,
   DndContext,
   type DragEndEvent,
   KeyboardSensor,
@@ -15,7 +16,7 @@ import {
   useSortable,
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
-import { CSS } from "@dnd-kit/utilities";
+import { CSS as DndCSS } from "@dnd-kit/utilities";
 import { GripVerticalIcon, PencilIcon, PlusIcon, StarIcon, XIcon } from "lucide-react";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import {
@@ -287,7 +288,18 @@ export function ProviderModelsSection({
     useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   );
-  // Each group has its own DndContext, so a drop never crosses a group boundary.
+  const groupBySlug = new Map(visibleModels.map((model) => [model.slug, groupOf(model)]));
+  // Groups share one list so a row keeps its DOM (and focus) when it changes group,
+  // so drops are confined to the dragged row's group here instead.
+  const sameGroupCollision: CollisionDetection = (args) => {
+    const group = groupBySlug.get(String(args.active.id));
+    return closestCenter({
+      ...args,
+      droppableContainers: args.droppableContainers.filter(
+        (container) => groupBySlug.get(String(container.id)) === group,
+      ),
+    });
+  };
   const handleDragEnd = (event: DragEndEvent) => {
     if (!canWritePreferences || event.over === null || event.active.id === event.over.id) return;
     const order = displayModels.map((model) => model.slug);
@@ -317,9 +329,6 @@ export function ProviderModelsSection({
     visible: favoriteCount > 0 ? "All" : null,
     hidden: "Hidden from picker",
   };
-  const groups = (["favorite", "visible", "hidden"] as const)
-    .map((group) => ({ group, models: visibleModels.filter((model) => groupOf(model) === group) }))
-    .filter(({ models: groupModels }) => groupModels.length > 0);
 
   const renderItem = (model: (typeof displayModels)[number], reorderable: boolean) => {
     const editingEntry =
@@ -421,37 +430,40 @@ export function ProviderModelsSection({
             {isFiltering ? "No models match." : "No models reported for this provider yet."}
           </p>
         ) : null}
-        {groups.map(({ group, models: groupModels }, groupIndex) => {
-          const label = groupLabels[group];
-          const reorderable = group !== "hidden" && !isFiltering;
-          return (
-            <div key={group}>
-              {label !== null ? (
-                <div
-                  className={cn(
-                    "px-2 pb-1.5 text-2xs text-muted-foreground",
-                    groupIndex === 0 ? "pt-1" : "pt-5",
-                  )}
-                >
-                  {label}
-                </div>
-              ) : null}
-              <DndContext
-                sensors={sensors}
-                collisionDetection={closestCenter}
-                modifiers={[restrictToVerticalAxis, restrictToParentElement]}
-                onDragEnd={handleDragEnd}
-              >
-                <SortableContext
-                  items={groupModels.map((model) => model.slug)}
-                  strategy={verticalListSortingStrategy}
-                >
-                  <div>{groupModels.map((model) => renderItem(model, reorderable))}</div>
-                </SortableContext>
-              </DndContext>
+        <DndContext
+          sensors={sensors}
+          collisionDetection={sameGroupCollision}
+          modifiers={[restrictToVerticalAxis, restrictToParentElement]}
+          onDragEnd={handleDragEnd}
+        >
+          <SortableContext
+            items={visibleModels.map((model) => model.slug)}
+            strategy={verticalListSortingStrategy}
+          >
+            <div>
+              {visibleModels.flatMap((model, index) => {
+                const group = groupOf(model);
+                const previous = visibleModels[index - 1];
+                const label =
+                  previous === undefined || groupOf(previous) !== group ? groupLabels[group] : null;
+                const item = renderItem(model, group !== "hidden" && !isFiltering);
+                if (label === null) return [item];
+                return [
+                  <div
+                    key={`${instanceId}:label:${group}`}
+                    className={cn(
+                      "px-2 pb-1.5 text-2xs text-muted-foreground",
+                      index === 0 ? "pt-1" : "pt-5",
+                    )}
+                  >
+                    {label}
+                  </div>,
+                  item,
+                ];
+              })}
             </div>
-          );
-        })}
+          </SortableContext>
+        </DndContext>
       </div>
 
       {driverKind === "antigravity" || !canManageCustomModels ? null : isAdding ? (
@@ -538,7 +550,7 @@ function SortableModelItem({
   return (
     <div
       ref={setNodeRef}
-      style={{ transform: CSS.Translate.toString(transform), transition }}
+      style={{ transform: DndCSS.Translate.toString(transform), transition }}
       className={cn(isDragging && "relative z-10 rounded-md bg-background shadow-md")}
     >
       {renderRow(handle)}
