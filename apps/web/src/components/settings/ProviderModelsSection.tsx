@@ -1,7 +1,7 @@
 import {
-  type CollisionDetection,
   DndContext,
   type DragEndEvent,
+  type DragStartEvent,
   KeyboardSensor,
   PointerSensor,
   closestCenter,
@@ -288,19 +288,15 @@ export function ProviderModelsSection({
     useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   );
-  const groupBySlug = new Map(visibleModels.map((model) => [model.slug, groupOf(model)]));
-  // Groups share one list so a row keeps its DOM (and focus) when it changes group,
-  // so drops are confined to the dragged row's group here instead.
-  const sameGroupCollision: CollisionDetection = (args) => {
-    const group = groupBySlug.get(String(args.active.id));
-    return closestCenter({
-      ...args,
-      droppableContainers: args.droppableContainers.filter(
-        (container) => groupBySlug.get(String(container.id)) === group,
-      ),
-    });
+  // Groups share one list so a row keeps its DOM (and focus) when it changes group.
+  // While dragging, other groups stop accepting drops; pointer and keyboard both honor that.
+  const [dragGroup, setDragGroup] = useState<ModelGroup | null>(null);
+  const handleDragStart = (event: DragStartEvent) => {
+    const model = visibleModels.find((entry) => entry.slug === String(event.active.id));
+    setDragGroup(model === undefined ? null : groupOf(model));
   };
   const handleDragEnd = (event: DragEndEvent) => {
+    setDragGroup(null);
     if (!canWritePreferences || event.over === null || event.active.id === event.over.id) return;
     const order = displayModels.map((model) => model.slug);
     const from = order.indexOf(String(event.active.id));
@@ -330,7 +326,8 @@ export function ProviderModelsSection({
     hidden: "Hidden from picker",
   };
 
-  const renderItem = (model: (typeof displayModels)[number], reorderable: boolean) => {
+  const renderItem = (model: (typeof displayModels)[number], group: ModelGroup) => {
+    const reorderable = group !== "hidden" && !isFiltering;
     const editingEntry =
       canManageCustomModels && model.isCustom && editingSlug === model.slug
         ? customModels.find((entry) => entry.slug === model.slug)
@@ -341,6 +338,7 @@ export function ProviderModelsSection({
         slug={model.slug}
         name={model.name}
         reorderable={reorderable}
+        acceptsDrop={dragGroup === null || dragGroup === group}
         canReorder={canWritePreferences}
         renderRow={(handle) => (
           <ProviderModelRow
@@ -432,9 +430,11 @@ export function ProviderModelsSection({
         ) : null}
         <DndContext
           sensors={sensors}
-          collisionDetection={sameGroupCollision}
+          collisionDetection={closestCenter}
           modifiers={[restrictToVerticalAxis, restrictToParentElement]}
+          onDragStart={handleDragStart}
           onDragEnd={handleDragEnd}
+          onDragCancel={() => setDragGroup(null)}
         >
           <SortableContext
             items={visibleModels.map((model) => model.slug)}
@@ -446,7 +446,7 @@ export function ProviderModelsSection({
                 const previous = visibleModels[index - 1];
                 const label =
                   previous === undefined || groupOf(previous) !== group ? groupLabels[group] : null;
-                const item = renderItem(model, group !== "hidden" && !isFiltering);
+                const item = renderItem(model, group);
                 if (label === null) return [item];
                 return [
                   <div
@@ -512,6 +512,7 @@ function SortableModelItem({
   slug,
   name,
   reorderable,
+  acceptsDrop,
   canReorder,
   renderRow,
   children,
@@ -519,6 +520,7 @@ function SortableModelItem({
   readonly slug: string;
   readonly name: string;
   readonly reorderable: boolean;
+  readonly acceptsDrop: boolean;
   readonly canReorder: boolean;
   readonly renderRow: (handle: ReactNode) => ReactNode;
   readonly children: ReactNode;
@@ -531,7 +533,10 @@ function SortableModelItem({
     transform,
     transition,
     isDragging,
-  } = useSortable({ id: slug, disabled: !reorderable || !canReorder });
+  } = useSortable({
+    id: slug,
+    disabled: { draggable: !reorderable || !canReorder, droppable: !reorderable || !acceptsDrop },
+  });
 
   const handle = reorderable ? (
     <button
